@@ -3,10 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 (async () => {
-  console.log("🚀 بدء تشغيل البوت (إصدار الرفع المباشر)...");
+  console.log("🚀 بدء تشغيل البوت (إصدار الحقن الإجباري)...");
 
   if (!fs.existsSync('auth.json') || !fs.existsSync('post.jpg')) {
-    console.error("❌ ملفات ناقصة! تأكد من وجود auth.json و post.jpg");
+    console.error("❌ ملفات ناقصة!");
     process.exit(1);
   }
 
@@ -46,39 +46,32 @@ const path = require('path');
   try {
     console.log("🌐 جاري الدخول إلى إنستغرام...");
     await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(10000);
 
-    console.log("⏳ انتظار استقرار الواجهة...");
-    await page.waitForTimeout(8000);
-
-    // 1. الضغط على زر Create
-    console.log("📸 الضغط على زر Create...");
+    // 1. الضغط على زر Create لفتح النافذة المنبثقة
+    console.log("📸 فتح نافذة الإنشاء...");
     const createBtn = 'svg[aria-label="New post"], svg[aria-label="Create"], [aria-label="Create"]';
-    await page.waitForSelector(createBtn, { state: 'visible' });
+    await page.waitForSelector(createBtn);
     await page.click(createBtn);
-    
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
 
-    // 2. الرفع المباشر (Direct Upload) - الطريقة الأضمن لـ GitHub Actions
-    console.log("📤 جاري رفع ملف الصورة مباشرة...");
+    // 2. الحقن الإجباري (Force Injection)
+    console.log("💉 محاولة حقن الملف في عنصر الـ Input المخفي...");
     
-    // نبحث عن عنصر الـ input المخفي الذي يستقبل الصور
-    const inputFile = await page.$('input[type="file"]');
-    if (inputFile) {
-      await inputFile.setInputFiles('post.jpg');
-      console.log("✅ تم رفع الملف بنجاح عبر Input.");
-    } else {
-      console.log("⚠️ لم نجد input، سأحاول الطريقة التقليدية...");
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent('filechooser'),
-        page.click('button:has-text("Select from computer")')
-      ]);
-      await fileChooser.setFiles('post.jpg');
-    }
+    // إنستغرام يضع input مخفي بكلاسات متغيرة، سنبحث عنه في كامل الصفحة
+    const inputSelector = 'input[type="file"][accept*="image"]';
+    
+    // ننتظر ظهور الـ input حتى لو كان مخفياً
+    await page.waitForSelector(inputSelector, { state: 'attached', timeout: 20000 });
+    
+    // نرفع الملف مباشرة للعنصر
+    await page.setInputFiles(inputSelector, 'post.jpg');
+    console.log("✅ تم الحقن والرفع بنجاح!");
 
-    // 3. الانتقال للمراحل التالية (Next)
+    // 3. المتابعة (Next)
     console.log("➡️ الضغط على Next (1)...");
     const nextBtn = 'div[role="button"]:has-text("Next")';
-    await page.waitForSelector(nextBtn);
+    await page.waitForSelector(nextBtn, { state: 'visible' });
     await page.click(nextBtn);
     
     await page.waitForTimeout(2000);
@@ -89,20 +82,18 @@ const path = require('path');
     console.log("✍️ إضافة الوصف...");
     const captionBox = 'div[aria-label="Write a caption..."]';
     await page.waitForSelector(captionBox);
-    await page.fill(captionBox, 'Automated Post #1 using Playwright and GitHub Actions! 🤖🚀');
+    await page.fill(captionBox, 'Automated Post via Injection Method! 🤖⚡');
 
-    // 5. النشر النهائي
+    // 5. النشر
     console.log("🚀 جاري الضغط على Share...");
     await page.click('div[role="button"]:has-text("Share")');
 
-    // انتظار رسالة النجاح
-    console.log("⏳ انتظار تأكيد النشر من إنستغرام...");
     await page.waitForSelector('text=Your post has been shared', { timeout: 60000 });
-    console.log("🎉 مبروك! تم النشر بنجاح.");
+    console.log("🎉 تم النشر بنجاح!");
 
   } catch (error) {
     console.error("❌ حدث خطأ:", error.message);
-    await page.screenshot({ path: 'final_debug_error.png' });
+    await page.screenshot({ path: 'injection_error.png' });
   } finally {
     await browser.close();
     console.log("🔒 إغلاق المتصفح.");
