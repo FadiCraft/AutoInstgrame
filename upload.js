@@ -3,28 +3,24 @@ const fs = require('fs');
 const path = require('path');
 
 (async () => {
-  console.log("🚀 بدء تشغيل البوت (إصدار الحماية المتطور)...");
+  console.log("🚀 بدء تشغيل البوت (إصدار الشبكة المستقر)...");
 
-  // 1. التحقق من وجود الملفات
   if (!fs.existsSync('auth.json') || !fs.existsSync('post.jpg')) {
-    console.error("❌ خطأ: تأكد من وجود auth.json و post.jpg في المستودع.");
+    console.error("❌ ملفات ناقصة!");
     process.exit(1);
   }
 
   const rawData = fs.readFileSync('auth.json', 'utf8');
   let cookiesRaw = JSON.parse(rawData);
 
-  // 2. تنظيف الكوكيز بشكل صارم لتجنب خطأ SameSite
   const processedCookies = cookiesRaw.map(c => {
-    // تحديد قيمة sameSite المقبولة فقط لـ Playwright
-    let sameSiteValue = "Lax"; // القيمة الافتراضية الأكثر أماناً وتوافقاً
+    let sameSiteValue = "Lax";
     if (c.sameSite) {
       const ss = c.sameSite.toLowerCase();
       if (ss === "none" || ss === "no_restriction") sameSiteValue = "None";
       else if (ss === "strict") sameSiteValue = "Strict";
       else if (ss === "lax") sameSiteValue = "Lax";
     }
-
     return {
       name: c.name,
       value: c.value,
@@ -37,74 +33,72 @@ const path = require('path');
     };
   });
 
-  // 3. تشغيل المتصفح (واجهة حاسوب بدقة Full HD)
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
+    viewport: { width: 1280, height: 720 },
     storageState: { cookies: processedCookies },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
   });
 
+  // تعيين وقت انتظار أطول افتراضي للعمليات (60 ثانية بدلاً من 30)
+  context.setDefaultTimeout(60000);
   const page = await context.newPage();
 
   try {
-    console.log("🌐 جاري الدخول إلى إنستغرام...");
-    await page.goto('https://www.instagram.com/', { waitUntil: 'networkidle' });
+    console.log("🌐 جاري الدخول إلى إنستغرام (محاولة تحميل سريعة)...");
+    
+    // الانتظار فقط حتى يتم تحميل محتوى الصفحة الأساسي (أسرع من networkidle)
+    await page.goto('https://www.instagram.com/', { 
+        waitUntil: 'domcontentloaded', 
+        timeout: 90000 
+    });
 
-    // انتظار بسيط للتأكد من تحميل العناصر الثقيلة
-    await page.waitForTimeout(5000);
+    console.log("⏳ انتظار استقرار العناصر...");
+    await page.waitForTimeout(7000); // انتظار يدوي للتأكد من ظهور الأزرار
 
-    // التأكد من تسجيل الدخول (البحث عن أيقونة الملف الشخصي أو الإشعارات)
-    const isLoggedIn = await page.isVisible('svg[aria-label="Home"], svg[aria-label="New post"]');
+    // التأكد من تسجيل الدخول
+    const isLoggedIn = await page.isVisible('svg[aria-label="Home"], svg[aria-label="New post"], [aria-label="Create"]');
     if (!isLoggedIn) {
-      console.log("⚠️ تحذير: لم يتم التعرف على الواجهة كمسجل دخول، جاري المتابعة بحذر...");
-      await page.screenshot({ path: 'login_status.png' });
+      console.log("⚠️ واجهة تسجيل الدخول غير مؤكدة، سأحاول المتابعة...");
+      await page.screenshot({ path: 'check_interface.png' });
     } else {
-      console.log("✅ تم تسجيل الدخول بنجاح!");
+      console.log("✅ تم تسجيل الدخول!");
     }
 
-    // 4. الضغط على زر Create (الإنشاء)
-    console.log("📸 محاولة النقر على زر الإنشاء...");
-    const createBtn = 'svg[aria-label="New post"], svg[aria-label="Create"], [aria-label="Create"]';
-    await page.waitForSelector(createBtn, { timeout: 15000 });
+    console.log("📸 محاولة الضغط على زر Create...");
+    const createBtn = 'svg[aria-label="New post"], svg[aria-label="Create"], [aria-label="Create"], a[href="#"]';
+    await page.waitForSelector(createBtn, { state: 'visible' });
     await page.click(createBtn);
 
-    // 5. رفع الصورة
-    console.log("📤 جاري رفع ملف الصورة...");
+    console.log("📤 رفع الصورة...");
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.click('button:has-text("Select from computer")').catch(() => page.click('div[role="button"]:has-text("Select from computer")'))
     ]);
     await fileChooser.setFiles('post.jpg');
 
-    // 6. المتابعة (Next) - واجهة الحاسوب تتطلب نقرتين
-    console.log("➡️ الانتقال للمرحلة التالية...");
+    console.log("➡️ المتابعة (Next)...");
     const nextBtn = 'div[role="button"]:has-text("Next")';
-    await page.waitForSelector(nextBtn, { timeout: 10000 });
-    await page.click(nextBtn); // تعديل الصورة
-    
+    await page.waitForSelector(nextBtn);
+    await page.click(nextBtn);
     await page.waitForTimeout(2000);
-    await page.click(nextBtn); // إضافة الفلاتر
+    await page.click(nextBtn);
 
-    // 7. كتابة الوصف (Caption) والنشر
     console.log("✍️ إضافة الوصف...");
-    const captionBox = 'div[aria-label="Write a caption..."]';
-    await page.waitForSelector(captionBox);
-    await page.fill(captionBox, 'Posted automatically via Node.js on GitHub Actions! 🤖🚀 #Automation');
+    await page.waitForSelector('div[aria-label="Write a caption..."]');
+    await page.fill('div[aria-label="Write a caption..."]', 'Testing Instagram Automation with Playwright! 🤖✨');
 
-    console.log("🚀 جاري الضغط على Share...");
+    console.log("🚀 نشر...");
     await page.click('div[role="button"]:has-text("Share")');
 
-    // الانتظار حتى تظهر رسالة النجاح
-    console.log("⏳ انتظار تأكيد النشر...");
-    await page.waitForSelector('text=Your post has been shared', { timeout: 45000 });
-    console.log("🎉 مبروك! تم النشر بنجاح.");
+    await page.waitForSelector('text=Your post has been shared', { timeout: 60000 });
+    console.log("🎉 تم النشر بنجاح!");
 
   } catch (error) {
-    console.error("❌ حدث خطأ تقني:", error.message);
-    await page.screenshot({ path: 'error_final_debug.png' });
+    console.error("❌ حدث خطأ:", error.message);
+    await page.screenshot({ path: 'error_debug.png' });
   } finally {
     await browser.close();
-    console.log("🔒 تم إغلاق المتصفح.");
+    console.log("🔒 إغلاق المتصفح.");
   }
 })();
