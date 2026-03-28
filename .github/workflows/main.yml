@@ -1,29 +1,29 @@
-name: Instagram Auto Post
+name: Instagram Bot
 on:
-  workflow_dispatch: # يتيح لك التشغيل يدوياً بضغطة زر
+  workflow_dispatch: # تشغيل يدوي
 
 jobs:
-  instagram-job:
+  run-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      # تحويل الـ Secret إلى ملف حقيقي داخل السيرفر
-      - name: Create auth.json from Secret
+      # تحويل الـ Secret إلى ملف JSON حقيقي
+      - name: Create Auth File
         run: |
           echo '${{ secrets.INSTA_COOKIES }}' > auth.json
-          ls -lh auth.json # للتأكد من حجم الملف في الـ Logs
+          ls -lh auth.json
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           npm install playwright
           npx playwright install chromium --with-deps
 
-      - name: Run Upload Script
+      - name: Run
         run: node upload.js
