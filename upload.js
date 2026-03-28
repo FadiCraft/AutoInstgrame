@@ -3,10 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 (async () => {
-  console.log("🚀 بدء تشغيل البوت (إصدار الشبكة المستقر)...");
+  console.log("🚀 بدء تشغيل البوت (إصدار الرفع المباشر)...");
 
   if (!fs.existsSync('auth.json') || !fs.existsSync('post.jpg')) {
-    console.error("❌ ملفات ناقصة!");
+    console.error("❌ ملفات ناقصة! تأكد من وجود auth.json و post.jpg");
     process.exit(1);
   }
 
@@ -40,63 +40,69 @@ const path = require('path');
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
   });
 
-  // تعيين وقت انتظار أطول افتراضي للعمليات (60 ثانية بدلاً من 30)
   context.setDefaultTimeout(60000);
   const page = await context.newPage();
 
   try {
-    console.log("🌐 جاري الدخول إلى إنستغرام (محاولة تحميل سريعة)...");
-    
-    // الانتظار فقط حتى يتم تحميل محتوى الصفحة الأساسي (أسرع من networkidle)
-    await page.goto('https://www.instagram.com/', { 
-        waitUntil: 'domcontentloaded', 
-        timeout: 90000 
-    });
+    console.log("🌐 جاري الدخول إلى إنستغرام...");
+    await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded' });
 
-    console.log("⏳ انتظار استقرار العناصر...");
-    await page.waitForTimeout(7000); // انتظار يدوي للتأكد من ظهور الأزرار
+    console.log("⏳ انتظار استقرار الواجهة...");
+    await page.waitForTimeout(8000);
 
-    // التأكد من تسجيل الدخول
-    const isLoggedIn = await page.isVisible('svg[aria-label="Home"], svg[aria-label="New post"], [aria-label="Create"]');
-    if (!isLoggedIn) {
-      console.log("⚠️ واجهة تسجيل الدخول غير مؤكدة، سأحاول المتابعة...");
-      await page.screenshot({ path: 'check_interface.png' });
-    } else {
-      console.log("✅ تم تسجيل الدخول!");
-    }
-
-    console.log("📸 محاولة الضغط على زر Create...");
-    const createBtn = 'svg[aria-label="New post"], svg[aria-label="Create"], [aria-label="Create"], a[href="#"]';
+    // 1. الضغط على زر Create
+    console.log("📸 الضغط على زر Create...");
+    const createBtn = 'svg[aria-label="New post"], svg[aria-label="Create"], [aria-label="Create"]';
     await page.waitForSelector(createBtn, { state: 'visible' });
     await page.click(createBtn);
+    
+    await page.waitForTimeout(3000);
 
-    console.log("📤 رفع الصورة...");
-    const [fileChooser] = await Promise.all([
-      page.waitForEvent('filechooser'),
-      page.click('button:has-text("Select from computer")').catch(() => page.click('div[role="button"]:has-text("Select from computer")'))
-    ]);
-    await fileChooser.setFiles('post.jpg');
+    // 2. الرفع المباشر (Direct Upload) - الطريقة الأضمن لـ GitHub Actions
+    console.log("📤 جاري رفع ملف الصورة مباشرة...");
+    
+    // نبحث عن عنصر الـ input المخفي الذي يستقبل الصور
+    const inputFile = await page.$('input[type="file"]');
+    if (inputFile) {
+      await inputFile.setInputFiles('post.jpg');
+      console.log("✅ تم رفع الملف بنجاح عبر Input.");
+    } else {
+      console.log("⚠️ لم نجد input، سأحاول الطريقة التقليدية...");
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.click('button:has-text("Select from computer")')
+      ]);
+      await fileChooser.setFiles('post.jpg');
+    }
 
-    console.log("➡️ المتابعة (Next)...");
+    // 3. الانتقال للمراحل التالية (Next)
+    console.log("➡️ الضغط على Next (1)...");
     const nextBtn = 'div[role="button"]:has-text("Next")';
     await page.waitForSelector(nextBtn);
     await page.click(nextBtn);
+    
     await page.waitForTimeout(2000);
+    console.log("➡️ الضغط على Next (2)...");
     await page.click(nextBtn);
 
+    // 4. كتابة الوصف
     console.log("✍️ إضافة الوصف...");
-    await page.waitForSelector('div[aria-label="Write a caption..."]');
-    await page.fill('div[aria-label="Write a caption..."]', 'Testing Instagram Automation with Playwright! 🤖✨');
+    const captionBox = 'div[aria-label="Write a caption..."]';
+    await page.waitForSelector(captionBox);
+    await page.fill(captionBox, 'Automated Post #1 using Playwright and GitHub Actions! 🤖🚀');
 
-    console.log("🚀 نشر...");
+    // 5. النشر النهائي
+    console.log("🚀 جاري الضغط على Share...");
     await page.click('div[role="button"]:has-text("Share")');
 
+    // انتظار رسالة النجاح
+    console.log("⏳ انتظار تأكيد النشر من إنستغرام...");
     await page.waitForSelector('text=Your post has been shared', { timeout: 60000 });
-    console.log("🎉 تم النشر بنجاح!");
+    console.log("🎉 مبروك! تم النشر بنجاح.");
 
   } catch (error) {
     console.error("❌ حدث خطأ:", error.message);
-    await page.screenshot({ path: 'error_debug.png' });
+    await page.screenshot({ path: 'final_debug_error.png' });
   } finally {
     await browser.close();
     console.log("🔒 إغلاق المتصفح.");
