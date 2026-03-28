@@ -1,23 +1,29 @@
-name: Insta Post
-on: [workflow_dispatch] # يتيح لك تشغيله يدوياً بضغطة زر
+name: Instagram Auto Post
+on:
+  workflow_dispatch: # يتيح لك التشغيل يدوياً بضغطة زر
 
 jobs:
-  run-bot:
+  instagram-job:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
-      
-      # هذه الخطوة تحول الـ Secret إلى ملف حقيقي ليقرأه السكربت
-      - name: Create Auth File
-        run: echo '${{ secrets.INSTA_COOKIES }}' > auth.json
+
+      # تحويل الـ Secret إلى ملف حقيقي داخل السيرفر
+      - name: Create auth.json from Secret
+        run: |
+          echo '${{ secrets.INSTA_COOKIES }}' > auth.json
+          ls -lh auth.json # للتأكد من حجم الملف في الـ Logs
 
       - name: Install Dependencies
         run: |
           npm install playwright
           npx playwright install chromium --with-deps
 
-      - name: Run Script
+      - name: Run Upload Script
         run: node upload.js
