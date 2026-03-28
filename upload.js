@@ -2,22 +2,44 @@ const { chromium, devices } = require('playwright');
 const fs = require('fs');
 
 (async () => {
-  const iPhone = devices['iPhone 12']; // محاكاة موبايل لسهولة النشر
   const browser = await chromium.launch({ headless: true });
   
-  // تحميل الجلسة من ملف الكوكيز
+  // قراءة ملف الكوكيز الذي وضعته في GitHub Secrets
+  const cookiesRaw = JSON.parse(fs.readFileSync('auth.json', 'utf8'));
+  
+  // تحويل الكوكيز لتنسيق Playwright
+  const storageState = {
+    cookies: cookiesRaw.map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      expires: c.expirationDate || -1,
+      httpOnly: c.httpOnly,
+      secure: c.secure,
+      sameSite: c.sameSite === "no_restriction" ? "None" : (c.sameSite || "Lax")
+    }))
+  };
+
   const context = await browser.newContext({
-    ...iPhone,
-    storageState: 'auth.json' 
+    ...devices['iPhone 12'],
+    storageState: storageState
   });
 
   const page = await context.newPage();
-  await page.goto('https://www.instagram.com/');
+  
+  console.log("جاري محاولة فتح إنستغرام...");
+  await page.goto('https://www.instagram.com/', { waitUntil: 'networkidle' });
 
-  // كود بسيط للتأكد أننا سجلنا دخول بنجاح
-  const title = await page.title();
-  console.log("الصفحة الحالية هي: " + title);
+  // التحقق من نجاح الدخول
+  const html = await page.content();
+  if (html.includes('aria-label="Home"') || html.includes('aria-label="Direct messages"')) {
+    console.log("✅ تم تسجيل الدخول بنجاح!");
+  } else {
+    console.log("❌ فشل الدخول. قد تحتاج لتحديث الكوكيز.");
+    // تصوير الصفحة لمعرفة ماذا يظهر (مفيد للتصحيح)
+    await page.screenshot({ path: 'error.png' });
+  }
 
-  // ملاحظة: هنا سنضيف لاحقاً كود الضغط على زر الرفع
   await browser.close();
 })();
