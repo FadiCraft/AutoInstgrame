@@ -1,0 +1,23 @@
+name: Insta Post
+on: [workflow_dispatch] # يتيح لك تشغيله يدوياً بضغطة زر
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      # هذه الخطوة تحول الـ Secret إلى ملف حقيقي ليقرأه السكربت
+      - name: Create Auth File
+        run: echo '${{ secrets.INSTA_COOKIES }}' > auth.json
+
+      - name: Install Dependencies
+        run: |
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Run Script
+        run: node upload.js
