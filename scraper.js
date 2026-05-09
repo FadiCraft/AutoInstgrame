@@ -4,90 +4,124 @@ const fs = require('fs');
 
 puppeteer.use(StealthPlugin());
 
-async function startScraping() {
-    console.log('--- [1] تشغيل المحاكاة البشرية المتقدمة ---');
+async function scrapeAflam4You() {
+    console.log('--- [1] تشغيل المتصفح لفحص موقع Aflam4You ---');
+    
     const browser = await puppeteer.launch({
-        headless: "new",
+        headless: "new", // غيرها إلى false إذا أردت تشغيله محلياً ورؤية ما يحدث
         args: [
-            '--no-sandbox',
+            '--no-sandbox', 
             '--disable-setuid-sandbox',
-            '--window-size=1920,1080',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            '--window-size=1280,720',
+            '--disable-web-security'
         ]
     });
 
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-
-    const baseUrl = 'https://www.yallatv.online';
+    const baseUrl = 'https://new.aflam4you.net';
+    
+    // ضع هنا الرابط الذي يحتوي على قائمة القنوات (الصفحة الرئيسية أو تصنيف معين)
+    const targetCategoryUrl = 'https://new.aflam4you.net/'; 
+    
+    const finalData = [];
 
     try {
-        console.log('--- [2] محاولة اختراق حاجز الحماية... ---');
-        
-        // الانتقال للموقع
-        await page.goto(`${baseUrl}/?m=tv&cat=%D8%A7%D9%85+%D8%A8%D9%8A+%D8%B3%D9%8A`, {
-            waitUntil: 'domcontentloaded', 
-            timeout: 60000
-        });
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-        // محاكاة حركة بشرية (تحريك الماوس قليلاً)
-        await page.mouse.move(100, 100);
-        await Promise.resolve(r => setTimeout(r, 1000));
-        await page.mouse.move(200, 300);
+        console.log(`--- [2] الدخول إلى صفحة القنوات: ${targetCategoryUrl} ---`);
+        await page.goto(targetCategoryUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        console.log('--- [3] الانتظار الذكي لظهور العناصر (Selector) ---');
-        
-        // سننتظر ظهور أي عنصر يحمل كلاس category-block
-        try {
-            await page.waitForSelector('.category-block', { timeout: 30000 });
-            console.log('✅ تم اختراق الحماية وظهور العناصر بنجاح!');
-        } catch (e) {
-            console.log('❌ فشل الانتظار الذكي. جاري أخذ لقطة شاشة للتحليل...');
-            await page.screenshot({ path: 'blocked_reason.png', fullPage: true });
-            
-            // محاولة أخيرة: هل المحتوى داخل Iframe رئيسي؟ سنفحص الأكواد
-            const content = await page.content();
-            fs.writeFileSync('page_source.html', content);
-            throw new Error("Cloudflare Blocked the request");
-        }
-
-        // استخراج البيانات بناءً على هيكلك
+        // استخراج بيانات القنوات بناءً على الهيكل الذي قدمته
         const channels = await page.evaluate((base) => {
             const results = [];
-            const items = document.querySelectorAll('.category-block[data-category="ام بي سي"] .stream-box');
-            
-            items.forEach(el => {
-                const title = el.querySelector('.stream-title')?.innerText.trim();
-                const path = el.getAttribute('href');
-                const img = el.querySelector('img')?.getAttribute('src');
+            // البحث عن كل كتلة تحتوي على قناة
+            const items = document.querySelectorAll('.thumbnail');
 
-                if (title && path) {
+            items.forEach(el => {
+                const linkEl = el.querySelector('.pm-video-thumb a');
+                const imgEl = el.querySelector('.pm-video-thumb img');
+                const titleEl = el.querySelector('.caption h3 a');
+
+                if (linkEl && titleEl) {
+                    const path = linkEl.getAttribute('href');
+                    const imgPath = imgEl ? imgEl.getAttribute('src') : null;
+
                     results.push({
-                        title: title,
+                        title: titleEl.innerText.trim(),
                         pageUrl: path.startsWith('http') ? path : base + path,
-                        logo: img ? (img.startsWith('http') ? img : base + img) : null
+                        logo: imgPath ? (imgPath.startsWith('http') ? imgPath : base + imgPath) : null
                     });
                 }
             });
             return results;
         }, baseUrl);
 
-        console.log(`--- [4] تم استخراج ${channels.length} قناة ---`);
+        console.log(`--- [3] تم العثور على ${channels.length} قناة. جاري الدخول لاستخراج الروابط... ---`);
 
-        // حفظ البيانات
-        fs.writeFileSync('channels.json', JSON.stringify({ 
-            success: true,
-            count: channels.length,
+        // المرور على كل قناة واستخراج الـ iframe والـ m3u8
+        for (let i = 0; i < channels.length; i++) {
+            const channel = channels[i];
+            console.log(`فحص (${i + 1}/${channels.length}): ${channel.title}`);
+
+            const channelPage = await browser.newPage();
+            let m3u8Url = null;
+
+            // تفعيل اعتراض طلبات الشبكة لاصطياد رابط البث
+            await channelPage.setRequestInterception(true);
+            channelPage.on('request', request => {
+                if (request.url().includes('.m3u8')) {
+                    m3u8Url = request.url();
+                    console.log(`   🎯 تم اصطياد الرابط: ${m3u8Url.split('?')[0]}...`);
+                }
+                request.continue();
+            });
+
+            try {
+                // الدخول لصفحة القناة
+                await channelPage.goto(channel.pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                // استخراج رابط الـ iframe من الـ div صاحب الـ id="Playerholder"
+                const iframeSrc = await channelPage.$eval('#Playerholder iframe', el => el.getAttribute('src')).catch(() => null);
+                let fullIframeUrl = null;
+
+                if (iframeSrc) {
+                    // تحويل الرابط النسبي (مثل /zremb472.php?...) إلى رابط كامل
+                    fullIframeUrl = iframeSrc.startsWith('http') ? iframeSrc : baseUrl + iframeSrc;
+                    
+                    // انتظار 4 ثوانٍ لضمان تحميل المشغل وإرساله لطلب الـ m3u8 في الشبكة
+                    await new Promise(r => setTimeout(r, 4000));
+                }
+
+                finalData.push({
+                    name: channel.title,
+                    logo: channel.logo,
+                    iframe_link: fullIframeUrl,
+                    m3u8_stream: m3u8Url
+                });
+
+            } catch (err) {
+                console.log(`   ❌ فشل تحميل المشغل لقناة ${channel.title}`);
+            } finally {
+                await channelPage.close();
+            }
+        }
+
+        // حفظ البيانات النهائية في ملف
+        fs.writeFileSync('aflam4you_channels.json', JSON.stringify({
+            developer: "Fadi Alatawna",
             updated_at: new Date().toISOString(),
-            channels: channels 
+            total_channels: finalData.length,
+            channels: finalData
         }, null, 2));
 
+        console.log('--- [4] تمت العملية بنجاح! تم حفظ البيانات في aflam4you_channels.json ---');
+
     } catch (error) {
-        console.error('🔴 تعطل السكربت:', error.message);
+        console.error('🔴 خطأ تقني:', error.message);
     } finally {
         await browser.close();
-        console.log('--- [5] إغلاق الجلسة ---');
+        console.log('--- تم إغلاق المتصفح ---');
     }
 }
 
-startScraping();
+scrapeAflam4You();
