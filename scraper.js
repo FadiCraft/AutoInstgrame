@@ -4,61 +4,93 @@ const fs = require('fs');
 
 puppeteer.use(StealthPlugin());
 
-async function scrapeChannels() {
-    console.log('--- بدء عملية الاستخراج ---');
+async function startScraping() {
     const browser = await puppeteer.launch({
         headless: "new",
-        args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
-        ]
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
     const page = await browser.newPage();
-    const m3u8Links = new Set(); // استخدام Set لتجنب التكرار
-
-    // اعتراض روابط البث m3u8 من الشبكة مباشرة
-    await page.setRequestInterception(true);
-    page.on('request', request => {
-        const url = request.url();
-        if (url.includes('.m3u8')) {
-            console.log('تم العثور على رابط بث:', url);
-            m3u8Links.add(url);
-        }
-        request.continue();
-    });
+    const baseUrl = 'https://www.yallatv.online';
+    const finalChannels = [];
 
     try {
-        // تعيين User-Agent حقيقي لتجاوز الحماية
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        console.log('جاري الدخول إلى الموقع...');
-        await page.goto('https://www.yallatv.online/?m=tv&cat=%D8%A7%D9%85+%D8%A8%D9%8A+%D8%B3%D9%8A', {
-            waitUntil: 'networkidle2',
-            timeout: 90000
+        console.log('--- بدأت عملية الفحص التفصيلي ---');
+        
+        // 1. الدخول للصفحة الرئيسية لقنوات MBC
+        await page.goto(`${baseUrl}/?m=tv&cat=%D8%A7%D9%85+%D8%A8%D9%8A+%D8%B3%D9%8A`, {
+            waitUntil: 'networkidle2'
         });
 
-        // الانتظار لتجاوز Cloudflare وتحميل المشغل
-        console.log('انتظار تحميل المشغل وفك الحماية...');
-        await new Promise(r => setTimeout(r, 20000)); 
+        // 2. استخراج كافة القنوات من الهيكل الذي أرسلته
+        const channelsData = await page.$$eval('.category-block[data-category="ام بي سي"] .stream-box', (elements, base) => {
+            return elements.map(el => ({
+                title: el.querySelector('.stream-title')?.innerText.trim(),
+                pageUrl: base + el.getAttribute('href'),
+                logo: base + el.querySelector('img')?.getAttribute('src')
+            }));
+        }, baseUrl);
 
-        // تحويل الـ Set إلى Array وحفظه
-        const result = Array.from(m3u8Links);
-        fs.writeFileSync('channels.json', JSON.stringify({
-            last_update: new Date().toISOString(),
-            total: result.length,
-            urls: result
-        }, null, 2));
+        console.log(`تم العثور على ${channelsData.length} قناة. جاري استخراج روابط المشغلات...`);
 
-        console.log(`تم حفظ ${result.length} روابط بنجاح.`);
+        // 3. الدخول لكل قناة لاستخراج رابط الـ iframe والمشغل
+        for (let i = 0; i < channelsData.length; i++) {
+            const channel = channelsData[i];
+            try {
+                console.log(`فحص قناة (${i + 1}/${channelsData.length}): ${channel.title}`);
+                
+                await page.goto(channel.pageUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+
+                // استخراج رابط الـ iframe من داخل الهيكل
+                const iframeSrc = await page.$eval('.iframevideo', el => el.getAttribute('src')).catch(() => null);
+
+                if (iframeSrc) {
+                    // بناء الرابط الكامل للمشغل
+                    const fullPlayerUrl = iframeSrc.startsWith('http') ? iframeSrc : baseUrl + iframeSrc;
+                    
+                    // الآن سنقوم باعتراض طلبات الشبكة أثناء تحميل الـ iframe للحصول على الـ m3u8 الحقيقي
+                    let m3u8Url = null;
+                    const client = await page.target().createCDPSession();
+                    await client.send('Network.enable');
+                    
+                    page.on('request', request => {
+                        if (request.url().includes('.m3u8')) {
+                            m3u8Url = request.url();
+                        }
+                    });
+
+                    // الانتظار قليلاً ليعمل المشغل ويظهر رابط البث
+                    await new Promise(r => setTimeout(r, 5000));
+
+                    finalChannels.push({
+                        name: channel.title,
+                        logo: channel.logo,
+                        player_page: channel.pageUrl,
+                        iframe_link: fullPlayerUrl,
+                        m3u8_stream: m3u8Url // قد يكون null إذا كانت الحماية تمنع الظهور المباشر
+                    });
+                }
+            } catch (err) {
+                console.error(`فشل فحص القناة ${channel.title}:`, err.message);
+            }
+        }
+
+        // 4. حفظ البيانات بشكل منظم جداً
+        const output = {
+            developer: "Fadi Alatawna",
+            last_sync: new Date().toLocaleString('ar-EG'),
+            source: baseUrl,
+            data: finalChannels
+        };
+
+        fs.writeFileSync('channels.json', JSON.stringify(output, null, 2));
+        console.log('--- اكتملت المهمة بنجاح وتم تحديث channels.json ---');
 
     } catch (error) {
-        console.error('حدث خطأ أثناء الاستخراج:', error.message);
+        console.error('خطأ عام في السكربت:', error);
     } finally {
         await browser.close();
     }
 }
 
-scrapeChannels();
+startScraping();
