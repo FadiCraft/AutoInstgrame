@@ -1,34 +1,38 @@
-name: Daily Channel Scraper
+name: YallaTV Channels Scraper
 
 on:
   schedule:
-    - cron: '0 0 * * *' # يعمل مرة يومياً
-  workflow_dispatch: # يسمح لك بتشغيله يدوياً
+    - cron: '0 */6 * * *' # يعمل كل 6 ساعات لتحديث التوكنات الزمنية
+  workflow_dispatch: # تشغيل يدوي
+
+permissions:
+  contents: write # السماح للـ Action بالكتابة في المستودع
 
 jobs:
-  scrape:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Dependencies
         run: |
+          npm init -y
           npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
 
       - name: Run Scraper
         run: node scraper.js
 
-      - name: Commit and Push Results
+      - name: Commit and Push Changes
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add channels.json
-          git commit -m "Update channels list [skip ci]" || exit 0
-          git push
+          git commit -m "Update IPTV channels [skip ci]" || echo "No changes to commit"
+          git push origin main
